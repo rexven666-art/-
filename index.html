@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Midnight Player</title>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: #000; color: #fff;
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh; display: flex; flex-direction: column;
+      align-items: center; padding: 2rem; overflow-x: hidden;
+    }
+
+    /* Фон */
+    .bg-image {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: url('tree.jpg') center center / cover no-repeat;
+      filter: brightness(0.5); z-index: -2;
+    }
+    .bg-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: radial-gradient(circle, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.9) 100%);
+      z-index: -1;
+    }
+
+    /* Стекло */
+    .glass {
+      background: rgba(20, 20, 25, 0.8);
+      backdrop-filter: blur(15px); -webkit-backdrop-filter: blur(15px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    header { text-align: center; margin-bottom: 2rem; z-index: 10; }
+    h1 { font-size: 2.5rem; font-weight: 700; }
+    h1 span { color: #3b82f6; }
+    header p { color: rgba(255,255,255,0.4); font-size: 0.75rem; letter-spacing: 0.2em; text-transform: uppercase; margin-top: 0.5rem; }
+
+    main { display: grid; grid-template-columns: 1fr; gap: 1.5rem; width: 100%; max-width: 1000px; z-index: 10; }
+    @media (min-width: 768px) { main { grid-template-columns: 1fr 2fr; } }
+
+    /* Плеер */
+    .player { padding: 1.5rem; display: flex; flex-direction: column; align-items: center; height: 560px; }
+    .vinyl { width: 130px; height: 130px; border-radius: 50%; background: linear-gradient(135deg, #1a1a1a, #000); border: 8px solid #111; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem; }
+    .vinyl-center { width: 36px; height: 36px; border-radius: 50%; background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.5); }
+    
+    .track-info { text-align: center; margin-bottom: 1rem; width: 100%; }
+    .track-info h2 { font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-info p { font-size: 0.7rem; color: rgba(255,255,255,0.4); margin-top: 0.2rem; }
+
+    /* Прогресс и Громкость */
+    .control-group { width: 100%; margin-bottom: 0.8rem; }
+    .control-row { display: flex; align-items: center; gap: 10px; }
+    .control-row span { font-size: 0.6rem; color: rgba(255,255,255,0.4); width: 35px; }
+    
+    input[type="range"] { flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; outline: none; -webkit-appearance: none; }
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%; background: #3b82f6; cursor: pointer; }
+    input[type="range"]:disabled { opacity: 0.3; }
+
+    .time { display: flex; justify-content: space-between; font-size: 0.6rem; color: rgba(255,255,255,0.4); margin-top: 0.3rem; }
+
+    /* Кнопки */
+    .controls { display: flex; align-items: center; gap: 1.5rem; margin-top: 1rem; }
+    button { background: none; border: none; color: #fff; cursor: pointer; }
+    .btn-play { width: 50px; height: 50px; border-radius: 50%; background: #fff; color: #000; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
+    .btn-play:active { transform: scale(0.9); }
+    .btn-skip { color: rgba(255,255,255,0.5); transition: color 0.2s; }
+    .btn-skip:hover { color: #fff; }
+
+    /* Плейлист */
+    .playlist-container { padding: 1.5rem; display: flex; flex-direction: column; height: 560px; position: relative; }
+
+    /* Поиск */
+    .search-box { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .search-box input { flex: 1; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; padding: 0.5rem 1rem; color: #fff; font-size: 0.75rem; outline: none; }
+    .search-box input:focus { border-color: #3b82f6; }
+    .search-box button { background: #3b82f6; padding: 0.5rem 1rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; transition: background 0.2s; }
+    .search-box button:hover { background: #2563eb; }
+
+    .search-results { background: rgba(0,0,0,0.5); border-radius: 12px; margin-bottom: 1rem; max-height: 120px; overflow-y: auto; display: none; }
+    .search-results.active { display: block; }
+    .search-item { padding: 0.5rem; font-size: 0.7rem; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .search-item:hover { background: rgba(255,255,255,0.1); }
+
+    /* Заголовок списка */
+    .list-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+    .list-header h3 { font-size: 0.75rem; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 0.1em; }
+    .btn-add { background: rgba(255,255,255,0.1); padding: 0.4rem 0.8rem; border-radius: 20px; font-size: 0.65rem; display: flex; align-items: center; gap: 0.3rem; transition: background 0.2s; cursor: pointer; }
+    .btn-add:hover { background: rgba(255,255,255,0.2); }
+
+    /* Список треков */
+    .track-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.3rem; }
+    .track-list::-webkit-scrollbar { width: 4px; }
+    .track-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 2px; }
+
+    .track-item { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem; border-radius: 10px; cursor: pointer; transition: background 0.2s; }
+    .track-item:hover { background: rgba(255,255,255,0.1); }
+    .track-item.active { background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.3); }
+    
+    .track-info-small { display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+    .track-icon { width: 24px; height: 24px; border-radius: 50%; background: rgba(255,255,255,0.1); display: flex; align-items: center; justify-content: center; font-size: 0.6rem; }
+    .track-text { min-width: 0; }
+    .track-text h4 { font-size: 0.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-text p { font-size: 0.6rem; color: rgba(255,255,255,0.4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .btn-delete { opacity: 0; color: rgba(255,255,255,0.3); transition: 0.2s; padding: 0.3rem; }
+    .track-item:hover .btn-delete { opacity: 1; }
+    .btn-delete:hover { color: #ff453a; }
+
+    .empty { text-align: center; color: rgba(255,255,255,0.2); font-size: 0.75rem; margin-top: 2rem; }
+    audio { display: none; }
+    
+    .search-loading { padding: 0.5rem; font-size: 0.7rem; color: #3b82f6; }
+  </style>
+</head>
+<body>
+
+  <div class="bg-image"></div>
+  <div class="bg-overlay"></div>
+
+  <header>
+    <h1>Midnight<span>Player</span></h1>
+    <p>Audius Full Stream · Volume</p>
+  </header>
+
+  <main>
+    <!-- Плеер -->
+    <div class="glass player">
+      <div class="vinyl"><div class="vinyl-center"></div></div>
+      
+      <div class="track-info">
+        <h2 id="title">Нет трека</h2>
+        <p id="artist">Загрузите файл или найдите онлайн</p>
+      </div>
+
+      <!-- Прогресс -->
+      <div class="control-group">
+        <input type="range" id="progress" value="0" max="100" disabled>
+        <div class="time">
+          <span id="curr-time">0:00</span>
+          <span id="total-time">0:00</span>
+        </div>
+      </div>
+
+      <!-- Громкость -->
+      <div class="control-group">
+        <div class="control-row">
+          <svg width="14" height="14" fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+          <input type="range" id="volume" min="0" max="1" step="0.01" value="1">
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="prev" class="btn-skip"><svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
+        <button id="play" class="btn-play">
+          <svg id="play-icon" width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="pause-icon" style="display:none;" width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button id="next" class="btn-skip"><svg width="24" height="24" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
+      </div>
+    </div>
+
+    <!-- Плейлист -->
+    <div class="glass playlist-container">
+      <div class="search-box">
+        <input type="text" id="search-input" placeholder="Поиск полных треков (Audius)...">
+        <button id="search-btn">Найти</button>
+      </div>
+      
+      <div id="search-results" class="search-results"></div>
+
+      <div class="list-header">
+        <h3>Треки</h3>
+        <label for="file-upload" class="btn-add">
+          <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Файл
+        </label>
+        <input type="file" id="file-upload" accept="audio/*" multiple style="display: none;">
+      </div>
+
+      <div id="playlist" class="track-list">
+        <div class="empty" id="empty-msg">Пока пусто...</div>
+      </div>
+    </div>
+  </main>
+
+  <audio id="audio-player"></audio>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function() {
+      var audio = document.getElementById('audio-player');
+      var playBtn = document.getElementById('play');
+      var playIcon = document.getElementById('play-icon');
+      var pauseIcon = document.getElementById('pause-icon');
+      var titleEl = document.getElementById('title');
+      var artistEl = document.getElementById('artist');
+      var progress = document.getElementById('progress');
+      var volumeSlider = document.getElementById('volume');
+      var currTime = document.getElementById('curr-time');
+      var totalTime = document.getElementById('total-time');
+      var playlistEl = document.getElementById('playlist');
+      var emptyMsg = document.getElementById('empty-msg');
+      var fileUpload = document.getElementById('file-upload');
+      
+      var tracks = [];
+      var currentIndex = -1;
+      var isPlaying = false;
+
+      function formatTime(s) {
+        if (isNaN(s)) return '0:00';
+        var m = Math.floor(s / 60);
+        var sec = Math.floor(s % 60);
+        return m + ':' + (sec < 10 ? '0' : '') + sec;
+      }
+
+      // Громкость
+      volumeSlider.addEventListener('input', function() {
+        audio.volume = volumeSlider.value;
+      });
+
+      // Отрисовка
+      function renderPlaylist() {
+        var items = playlistEl.querySelectorAll('.track-item');
+        items.forEach(function(item) { item.remove(); });
+
+        if (tracks.length === 0) { emptyMsg.style.display = 'block'; return; }
+        emptyMsg.style.display = 'none';
+
+        tracks.forEach(function(track, i) {
+          var isActive = (i === currentIndex);
+          var div = document.createElement('div');
+          div.className = 'track-item' + (isActive ? ' active' : '');
+          
+          div.innerHTML = 
+            '<div class="track-info-small">' +
+              '<div class="track-icon">' + (isActive && isPlaying ? '❚❚' : '▶') + '</div>' +
+              '<div class="track-text">' +
+                '<h4>' + track.name + '</h4>' +
+                '<p>' + track.artist + '</p>' +
+              '</div>' +
+            '</div>' +
+            '<button class="btn-delete">' +
+              '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>' +
+            '</button>';
+
+          div.addEventListener('click', function(e) {
+            if (e.target.closest('.btn-delete')) return;
+            if (currentIndex === i) { isPlaying ? pauseAudio() : playAudio(); }
+            else { loadTrack(i); playAudio(); }
+          });
+
+          div.querySelector('.btn-delete').addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (currentIndex === i) {
+              pauseAudio(); audio.src = ''; currentIndex = -1;
+              titleEl.textContent = 'Нет трека'; artistEl.textContent = 'Загрузите файл или найдите онлайн';
+              progress.value = 0; progress.disabled = true;
+            } else if (i < currentIndex) { currentIndex--; }
+            tracks.splice(i, 1); renderPlaylist();
+          });
+
+          playlistEl.appendChild(div);
+        });
+      }
+
+      function loadTrack(index) {
+        if (index < 0 || index >= tracks.length) return;
+        currentIndex = index;
+        audio.src = tracks[index].url;
+        titleEl.textContent = tracks[index].name;
+        artistEl.textContent = tracks[index].artist;
+        progress.value = 0; progress.disabled = false;
+        renderPlaylist();
+      }
+
+      function playAudio() {
+        if (currentIndex === -1) return;
+        audio.play().catch(function() {});
+        isPlaying = true;
+        playIcon.style.display = 'none'; pauseIcon.style.display = 'block';
+        renderPlaylist();
+      }
+
+      function pauseAudio() {
+        audio.pause(); isPlaying = false;
+        playIcon.style.display = 'block'; pauseIcon.style.display = 'none';
+        renderPlaylist();
+      }
+
+      playBtn.addEventListener('click', function() {
+        if (currentIndex === -1 && tracks.length > 0) { loadTrack(0); playAudio(); }
+        else if (isPlaying) { pauseAudio(); } else { playAudio(); }
+      });
+
+      document.getElementById('next').addEventListener('click', function() {
+        if (tracks.length > 0) { loadTrack((currentIndex + 1) % tracks.length); playAudio(); }
+      });
+
+      document.getElementById('prev').addEventListener('click', function() {
+        if (tracks.length > 0) { loadTrack((currentIndex - 1 + tracks.length) % tracks.length); playAudio(); }
+      });
+
+      audio.addEventListener('timeupdate', function() {
+        if (audio.duration) {
+          progress.value = (audio.currentTime / audio.duration) * 100;
+          currTime.textContent = formatTime(audio.currentTime);
+          totalTime.textContent = formatTime(audio.duration);
+        }
+      });
+
+      progress.addEventListener('input', function() {
+        if (audio.duration) audio.currentTime = (progress.value / 100) * audio.duration;
+      });
+
+      audio.addEventListener('ended', function() {
+        if (tracks.length > 0) { loadTrack((currentIndex + 1) % tracks.length); playAudio(); }
+      });
+
+      // Локальные файлы
+      fileUpload.addEventListener('change', function(e) {
+        for (var i = 0; i < e.target.files.length; i++) {
+          var file = e.target.files[i];
+          if (file.type.indexOf('audio/') === 0) {
+            tracks.push({ name: file.name.replace(/\.[^/.]+$/, ''), artist: 'Локальный файл', url: URL.createObjectURL(file) });
+          }
+        }
+        renderPlaylist();
+      });
+
+      // ПОИСК AUDIUS (Полные треки)
+      var searchInput = document.getElementById('search-input');
+      var searchBtn = document.getElementById('search-btn');
+      var searchResults = document.getElementById('search-results');
+
+      async function getAudiusHost() {
+        try {
+          var res = await fetch('https://api.audius.co');
+          var data = await res.json();
+          if (data && data.data && data.data.length) {
+            return data.data[Math.floor(Math.random() * data.data.length)];
+          }
+        } catch (e) {}
+        return 'https://discoveryprovider.audius.co';
+      }
+
+      searchBtn.addEventListener('click', async function() {
+        var q = searchInput.value.trim();
+        if (!q) return;
+
+        searchResults.style.display = 'block';
+        searchResults.innerHTML = '<div class="search-loading">Поиск...</div>';
+
+        try {
+          var host = await getAudiusHost();
+          var res = await fetch(host + '/v1/tracks/search?query=' + encodeURIComponent(q) + '&app_name=MidnightPlayer');
+          var data = await res.json();
+          
+          if (!data.data || data.data.length === 0) {
+            searchResults.innerHTML = '<div class="search-loading">Ничего не найдено</div>';
+            return;
+          }
+
+          searchResults.innerHTML = '';
+          data.data.slice(0, 6).forEach(function(t) {
+            var div = document.createElement('div');
+            div.className = 'search-item';
+            div.innerHTML = '<span style="color:#fff;">' + t.title + '</span> <span style="color:#888;">' + t.user.name + '</span>';
+            
+            div.addEventListener('click', async function() {
+              searchResults.innerHTML = '<div class="search-loading">Загрузка потока...</div>';
+              try {
+                var streamHost = await getAudiusHost();
+                var streamRes = await fetch(streamHost + '/v1/tracks/' + t.id + '/stream?app_name=MidnightPlayer');
+                var streamData = await streamRes.json();
+                
+                tracks.push({ name: t.title, artist: t.user.name, url: streamData.data });
+                renderPlaylist();
+                loadTrack(tracks.length - 1);
+                playAudio();
+                searchResults.style.display = 'none';
+                searchInput.value = '';
+              } catch (err) {
+                searchResults.innerHTML = '<div class="search-loading" style="color:#ff453a;">Ошибка загрузки</div>';
+              }
+            });
+            searchResults.appendChild(div);
+          });
+        } catch (e) {
+          searchResults.innerHTML = '<div class="search-loading" style="color:#ff453a;">Ошибка сети</div>';
+        }
+      });
+
+      searchInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') searchBtn.click();
+      });
+
+      renderPlaylist();
+      audio.volume = 1;
+    });
+  </script>
+</body>
+</html>
