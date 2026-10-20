@@ -1,0 +1,53 @@
+// --- Интеграция поиска Audius ---
+const AUDIUS_API = 'https://discoveryprovider.audius.co/v1';
+
+async function searchAudius(query) {
+  const res = await fetch(`${AUDIUS_API}/tracks/search?query=${encodeURIComponent(query)}&app_name=MidnightPlayer`);
+  const data = await res.json();
+  return data.data || [];
+}
+
+async function playAudiusTrack(trackId) {
+  // Получение адреса потока
+  const res = await fetch(`${AUDIUS_API}/tracks/${trackId}/stream?app_name=MidnightPlayer`);
+  const data = await res.json();
+  const streamUrl = data.data; // Прямая ссылка на mp3
+
+  // Загрузка в существующий плеер
+  audioPlayer.src = streamUrl;
+  trackTitle.textContent = 'Поток Audius';
+  trackArtist.textContent = 'Онлайн';
+  audioPlayer.play();
+  isPlaying = true;
+  playIcon.classList.add('hidden');
+  pauseIcon.classList.remove('hidden');
+  gsap.to(vinyl, { rotation: 360, duration: 4, repeat: -1, ease: "none" });
+}
+
+document.getElementById('search-btn').addEventListener('click', async () => {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  const resultsDiv = document.getElementById('search-results');
+  resultsDiv.classList.remove('hidden');
+  resultsDiv.innerHTML = '<p class="text-white/40 text-xs p-2">Поиск...</p>';
+  
+  try {
+    const tracks = await searchAudius(q);
+    if (!tracks.length) {
+      resultsDiv.innerHTML = '<p class="text-white/40 text-xs p-2">Ничего не найдено</p>';
+      return;
+    }
+    resultsDiv.innerHTML = tracks.slice(0, 8).map(t => `
+      <div class="flex items-center justify-between p-2 rounded-lg hover:bg-white/10 cursor-pointer text-xs" 
+           onclick="playAudiusTrack('${t.id}')">
+        <div class="truncate flex-1">
+          <span class="text-white/90">${t.title}</span>
+          <span class="text-white/40 ml-2">${t.user.name}</span>
+        </div>
+        <span class="text-blue-400 ml-2">▶</span>
+      </div>
+    `).join('');
+  } catch (e) {
+    resultsDiv.innerHTML = '<p class="text-red-400 text-xs p-2">Ошибка поиска, попробуйте позже</p>';
+  }
+});
