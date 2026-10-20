@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Midnight Player</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- GSAP -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    body, html {
+      margin: 0;
+      padding: 0;
+      background-color: #000;
+      color: #fff;
+      font-family: 'Inter', -apple-system, sans-serif;
+      overflow-x: hidden;
+      cursor: none; /* Скрываем стандартный курсор */
+    }
+
+    /* --- Кастомный курсор --- */
+    #cursor-dot, #cursor-ring {
+      position: fixed;
+      top: 0; left: 0;
+      pointer-events: none;
+      z-index: 9999;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+    }
+    #cursor-dot {
+      width: 6px; height: 6px;
+      background-color: #fff;
+      box-shadow: 0 0 10px #fff;
+    }
+    #cursor-ring {
+      width: 36px; height: 36px;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      transition: width 0.3s, height 0.3s, background-color 0.3s;
+    }
+    #cursor-ring.hovering {
+      width: 60px; height: 60px;
+      background-color: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.8);
+    }
+
+    /* --- Фоновые слои (по твоим картинкам) --- */
+    .bg-layer {
+      position: fixed;
+      inset: 0;
+      z-index: -2;
+      pointer-events: none;
+    }
+    /* Слой с деревом и луной (имитация через градиент и твой файл) */
+    #bg-tree {
+      /* ВСТАВЬ СЮДА ПУТЬ К ПЕРВОЙ КАРТИНКЕ (дерево) */
+      background-image: url('tree.jpg'); 
+      background-size: cover;
+      background-position: center 20%;
+      filter: brightness(0.6) contrast(1.2) sepia(0.2) hue-rotate(180deg);
+      opacity: 0.8;
+    }
+    /* Слой с сеткой */
+    #bg-grid {
+      /* ВСТАВЬ СЮДА ПУТЬ КО ВТОРОЙ КАРТИНКЕ (сетка) */
+      background-image: linear-gradient(rgba(0,0,0,0.7), rgba(0,0,0,0.9)), url('grid.jpg');
+      background-size: cover;
+      opacity: 0.4;
+      mix-blend-mode: overlay;
+    }
+
+    /* Световые орбы (освещение) */
+    .orb {
+      position: fixed;
+      border-radius: 50%;
+      filter: blur(100px);
+      z-index: -1;
+      pointer-events: none;
+      animation: float 10s infinite alternate;
+    }
+    .orb-1 { width: 400px; height: 400px; background: rgba(0, 113, 227, 0.3); top: 10%; left: 10%; }
+    .orb-2 { width: 300px; height: 300px; background: rgba(255, 255, 255, 0.1); bottom: 20%; right: 10%; animation-delay: -5s; }
+
+    @keyframes float {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(50px, 50px) scale(1.1); }
+    }
+
+    /* Glassmorphism */
+    .glass {
+      background: rgba(20, 20, 25, 0.6);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(255,255,255,0.02);
+    }
+
+    /* Скрываем стандартный аудио-плеер */
+    audio { display: none; }
+
+    /* Кастомизация скроллбара для плейлиста */
+    .playlist-scroll::-webkit-scrollbar { width: 4px; }
+    .playlist-scroll::-webkit-scrollbar-track { background: transparent; }
+    .playlist-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+    /* Анимация появления */
+    .reveal { opacity: 0; transform: translateY(30px); }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4 md:p-8">
+
+  <!-- Кастомный курсор -->
+  <div id="cursor-dot"></div>
+  <div id="cursor-ring"></div>
+
+  <!-- Фоны -->
+  <div id="bg-tree" class="bg-layer"></div>
+  <div id="bg-grid" class="bg-layer"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+
+  <!-- Заголовок -->
+  <header class="reveal text-center mt-12 mb-8 z-10">
+    <h1 class="text-4xl md:text-6xl font-bold tracking-tight mb-2">Midnight<span class="text-blue-500">Player</span></h1>
+    <p class="text-white/50 text-sm tracking-widest uppercase">Твоя музыка. Твой вайб.</p>
+  </header>
+
+  <!-- Основной интерфейс -->
+  <main class="w-full max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-6 z-10 reveal">
+    
+    <!-- Левая колонка: Плеер -->
+    <div class="glass rounded-3xl p-6 flex flex-col items-center justify-between col-span-1 md:col-span-1 h-[450px]">
+      
+      <!-- Обложка / Визуализация -->
+      <div class="w-48 h-48 rounded-full border border-white/10 flex items-center justify-center relative overflow-hidden mb-6 shadow-[0_0_50px_rgba(0,113,227,0.2)]">
+        <div id="vinyl" class="w-full h-full rounded-full bg-gradient-to-br from-[#1a1a1a] to-[#000] flex items-center justify-center border-[8px] border-[#111]">
+          <div class="w-12 h-12 rounded-full bg-blue-500/20 border border-blue-500/50"></div>
+        </div>
+        <!-- Блик -->
+        <div class="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/20 pointer-events-none"></div>
+      </div>
+
+      <!-- Инфо о треке -->
+      <div class="text-center w-full mb-6">
+        <h2 id="track-title" class="text-lg font-semibold truncate px-2 text-white/90">Нет трека</h2>
+        <p id="track-artist" class="text-xs text-white/40 mt-1">Загрузите файл</p>
+      </div>
+
+      <!-- Прогресс-бар -->
+      <div class="w-full mb-6">
+        <input type="range" id="progress" value="0" max="100" class="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500">
+        <div class="flex justify-between text-[10px] text-white/40 mt-2">
+          <span id="curr-time">0:00</span>
+          <span id="total-time">0:00</span>
+        </div>
+      </div>
+
+      <!-- Кнопки управления -->
+      <div class="flex items-center gap-6">
+        <button id="prev-btn" class="text-white/50 hover:text-white transition-colors">
+          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+        <button id="play-btn" class="w-14 h-14 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-[0_0_20px_rgba(255,255,255,0.3)]">
+          <svg id="play-icon" class="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="pause-icon" class="w-6 h-6 hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button id="next-btn" class="text-white/50 hover:text-white transition-colors">
+          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Правая колонка: Плейлист и Загрузка -->
+    <div class="glass rounded-3xl p-6 col-span-1 md:col-span-2 h-[450px] flex flex-col relative overflow-hidden">
+      
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-sm font-semibold uppercase tracking-wider text-white/60">Плейлист</h3>
+        
+        <!-- Кнопка загрузки -->
+        <label for="file-upload" class="cursor-pointer bg-white/10 hover:bg-white/20 border border-white/10 px-4 py-2 rounded-full text-xs font-medium transition-colors flex items-center gap-2">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Добавить треки
+        </label>
+        <input id="file-upload" type="file" accept="audio/*" multiple class="hidden">
+      </div>
+
+      <!-- Список треков -->
+      <div id="playlist" class="flex-1 overflow-y-auto playlist-scroll pr-2 space-y-2">
+        <div class="text-center text-white/30 text-sm mt-10" id="empty-msg">
+          Пока пусто. Перетащи сюда файлы или нажми «Добавить».
+        </div>
+        <!-- Треки будут добавляться сюда -->
+      </div>
+
+      <!-- Эффект drag and drop -->
+      <div id="drop-zone" class="absolute inset-0 bg-blue-500/20 backdrop-blur-sm border-2 border-blue-500 border-dashed rounded-3xl hidden items-center justify-center flex-col z-20 pointer-events-none">
+        <svg class="w-12 h-12 text-blue-400 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+        <p class="text-blue-400 font-semibold">Отпусти, чтобы загрузить</p>
+      </div>
+    </div>
+  </main>
+
+  <audio id="audio-player"></audio>
+
+  <script>
+    // --- 1. Анимация курсора ---
+    const cursorDot = document.getElementById('cursor-dot');
+    const cursorRing = document.getElementById('cursor-ring');
+    
+    const xToDot = gsap.quickTo(cursorDot, "x", {duration: 0.1, ease: "power3"});
+    const yToDot = gsap.quickTo(cursorDot, "y", {duration: 0.1, ease: "power3"});
+    const xToRing = gsap.quickTo(cursorRing, "x", {duration: 0.4, ease: "power3"});
+    const yToRing = gsap.quickTo(cursorRing, "y", {duration: 0.4, ease: "power3"});
+
+    window.addEventListener('mousemove', (e) => {
+      xToDot(e.clientX); yToDot(e.clientY);
+      xToRing(e.clientX); yToRing(e.clientY);
+    });
+
+    const interactables = document.querySelectorAll('button, label, input, .track-item');
+    interactables.forEach(el => {
+      el.addEventListener('mouseenter', () => cursorRing.classList.add('hovering'));
+      el.addEventListener('mouseleave', () => cursorRing.classList.remove('hovering'));
+    });
+
+    // --- 2. Анимация появления при загрузке ---
+    gsap.to('.reveal', {
+      opacity: 1,
+      y: 0,
+      duration: 1.2,
+      stagger: 0.2,
+      ease: "power4.out",
+      delay: 0.2
+    });
+
+    // --- 3. Параллакс фона при движении мыши ---
+    window.addEventListener('mousemove', (e) => {
+      const x = (e.clientX / window.innerWidth - 0.5) * 20;
+      const y = (e.clientY / window.innerHeight - 0.5) * 20;
+      
+      gsap.to('#bg-tree', { x: x * 0.5, y: y * 0.5, duration: 2, ease: "power2.out" });
+      gsap.to('#bg-grid', { x: -x * 0.3, y: -y * 0.3, duration: 2, ease: "power2.out" });
+    });
+
+    // --- 4. Логика Плеера ---
+    const audioPlayer = document.getElementById('audio-player');
+    const playBtn = document.getElementById('play-btn');
+    const playIcon = document.getElementById('play-icon');
+    const pauseIcon = document.getElementById('pause-icon');
+    const trackTitle = document.getElementById('track-title');
+    const trackArtist = document.getElementById('track-artist');
+    const progress = document.getElementById('progress');
+    const currTime = document.getElementById('curr-time');
+    const totalTime = document.getElementById('total-time');
+    const playlist = document.getElementById('playlist');
+    const emptyMsg = document.getElementById('empty-msg');
+    const fileUpload = document.getElementById('file-upload');
+    const dropZone = document.getElementById('drop-zone');
+    const vinyl = document.getElementById('vinyl');
+
+    let tracks = [];
+    let currentTrackIndex = -1;
+    let isPlaying = false;
+    let rotationAnim;
+
+    // Форматирование времени
+    const formatTime = (seconds) => {
+      if (isNaN(seconds)) return "0:00";
+      const mins = Math.floor(seconds / 60);
+      const secs = Math.floor(seconds % 60);
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    // Загрузка файлов
+    const handleFiles = (files) => {
+      Array.from(files).forEach(file => {
+        if (file.type.startsWith('audio/')) {
+          const url = URL.createObjectURL(file);
+          tracks.push({
+            name: file.name.replace(/\.[^/.]+$/, ""), // убираем расширение
+            artist: "Локальный файл",
+            url: url
+          });
+        }
+      });
+      renderPlaylist();
+    };
+
+    fileUpload.addEventListener('change', (e) => handleFiles(e.target.files));
+
+    // Drag & Drop
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('hidden');
+      dropZone.classList.add('flex');
+    });
+    document.addEventListener('dragleave', (e) => {
+      if (e.relatedTarget === null) {
+        dropZone.classList.add('hidden');
+        dropZone.classList.remove('flex');
+      }
+    });
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('hidden');
+      dropZone.classList.remove('flex');
+      if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+    });
+
+    // Отрисовка плейлиста
+    const renderPlaylist = () => {
+      if (tracks.length === 0) {
+        emptyMsg.style.display = 'block';
+        return;
+      }
+      emptyMsg.style.display = 'none';
+      
+      // Очищаем всё кроме emptyMsg
+      Array.from(playlist.children).forEach(child => {
+        if (child.id !== 'empty-msg') child.remove();
+      });
+
+      tracks.forEach((track, index) => {
+        const item = document.createElement('div');
+        item.className = `track-item group flex items-center justify-between p-3 rounded-xl hover:bg-white/10 transition-colors cursor-pointer ${index === currentTrackIndex ? 'bg-white/10 border border-white/10' : ''}`;
+        item.innerHTML = `
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-xs text-white/50 group-hover:text-white transition-colors">
+              ${index === currentTrackIndex && isPlaying ? '❚❚' : '▶'}
+            </div>
+            <div>
+              <p class="text-sm font-medium text-white/90">${track.name}</p>
+              <p class="text-[10px] text-white/40">${track.artist}</p>
+            </div>
+          </div>
+        `;
+        item.addEventListener('click', () => {
+          if (currentTrackIndex === index) {
+            togglePlay();
+          } else {
+            loadTrack(index);
+            playTrack();
+          }
+        });
+        playlist.appendChild(item);
+      });
+    };
+
+    // Загрузка трека
+    const loadTrack = (index) => {
+      currentTrackIndex = index;
+      const track = tracks[index];
+      audioPlayer.src = track.url;
+      trackTitle.textContent = track.name;
+      trackArtist.textContent = track.artist;
+      progress.value = 0;
+      renderPlaylist();
+    };
+
+    // Воспроизведение / Пауза
+    const playTrack = () => {
+      if (currentTrackIndex === -1) return;
+      audioPlayer.play();
+      isPlaying = true;
+      playIcon.classList.add('hidden');
+      pauseIcon.classList.remove('hidden');
+      renderPlaylist();
+      
+      // Анимация пластинки
+      gsap.to(vinyl, { rotation: 360, duration: 4, repeat: -1, ease: "none" });
+    };
+
+    const pauseTrack = () => {
+      audioPlayer.pause();
+      isPlaying = false;
+      playIcon.classList.remove('hidden');
+      pauseIcon.classList.add('hidden');
+      renderPlaylist();
+      
+      // Останавливаем пластинку
+      gsap.killTweensOf(vinyl);
+    };
+
+    const togglePlay = () => {
+      if (currentTrackIndex === -1 && tracks.length > 0) {
+        loadTrack(0);
+        playTrack();
+      } else if (isPlaying) {
+        pauseTrack();
+      } else {
+        playTrack();
+      }
+    };
+
+    playBtn.addEventListener('click', togglePlay);
+
+    // Следующий / Предыдущий
+    document.getElementById('next-btn').addEventListener('click', () => {
+      if (tracks.length > 0) {
+        let nextIndex = (currentTrackIndex + 1) % tracks.length;
+        loadTrack(nextIndex);
+        playTrack();
+      }
+    });
+
+    document.getElementById('prev-btn').addEventListener('click', () => {
+      if (tracks.length > 0) {
+        let prevIndex = (currentTrackIndex - 1 + tracks.length) % tracks.length;
+        loadTrack(prevIndex);
+        playTrack();
+      }
+    });
+
+    // Обновление прогресс-бара
+    audioPlayer.addEventListener('timeupdate', () => {
+      if (audioPlayer.duration) {
+        const percent = (audioPlayer.currentTime / audioPlayer.duration) * 100;
+        progress.value = percent;
+        currTime.textContent = formatTime(audioPlayer.currentTime);
+        totalTime.textContent = formatTime(audioPlayer.duration);
+      }
+    });
+
+    // Перемотка
+    progress.addEventListener('input', () => {
+      if (audioPlayer.duration) {
+        audioPlayer.currentTime = (progress.value / 100) * audioPlayer.duration;
+      }
+    });
+
+    // Автопереход на следующий трек
+    audioPlayer.addEventListener('ended', () => {
+      if (tracks.length > 0) {
+        let nextIndex = (currentTrackIndex + 1) % tracks.length;
+        loadTrack(nextIndex);
+        playTrack();
+      } else {
+        pauseTrack();
+      }
+    });
+  </script>
+</body>
+</html>
