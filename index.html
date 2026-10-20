@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Midnight Player — Visualizer Edition</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+    body, html {
+      margin: 0; padding: 0;
+      background: #000; color: #fff;
+      font-family: 'Inter', -apple-system, sans-serif;
+      overflow-x: hidden; cursor: none;
+    }
+
+    /* Курсор */
+    #cursor-dot, #cursor-ring, #cursor-glow {
+      position: fixed; top: 0; left: 0;
+      pointer-events: none; z-index: 9999;
+      border-radius: 50%; transform: translate(-50%, -50%);
+      will-change: transform;
+    }
+    #cursor-dot { width: 8px; height: 8px; background: #fff; box-shadow: 0 0 12px #0071e3, 0 0 24px #0071e3; }
+    #cursor-ring {
+      width: 40px; height: 40px;
+      border: 1.5px solid rgba(255,255,255,0.5);
+      transition: width .25s ease, height .25s ease, border-color .25s, background-color .25s;
+      backdrop-filter: blur(2px);
+    }
+    #cursor-ring.hovering { width: 70px; height: 70px; border-color: #0071e3; background: rgba(0,113,227,0.15); }
+    #cursor-glow {
+      width: 120px; height: 120px;
+      background: radial-gradient(circle, rgba(0,113,227,0.25) 0%, transparent 70%);
+      filter: blur(20px); opacity: 0.6;
+    }
+
+    /* Фон */
+    .bg-canvas { position: fixed; inset: 0; z-index: -3; background: #000; overflow: hidden; }
+    .bg-grid-lines {
+      position: absolute; inset: -50%;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      transform: perspective(500px) rotateX(10deg);
+      animation: gridMove 20s linear infinite;
+    }
+    @keyframes gridMove {
+      0% { transform: perspective(500px) rotateX(10deg) translateY(0); }
+      100% { transform: perspective(500px) rotateX(10deg) translateY(60px); }
+    }
+    .bg-orb { position: absolute; border-radius: 50%; filter: blur(120px); opacity: 0.5; animation: orbFloat 12s ease-in-out infinite alternate; }
+    .orb-a { width: 500px; height: 500px; background: #0051a8; top: -10%; left: -10%; }
+    .orb-b { width: 400px; height: 400px; background: #1a3a6e; bottom: -10%; right: -10%; animation-delay: -6s; }
+    .orb-c { width: 300px; height: 300px; background: #42a5f5; top: 40%; left: 50%; opacity: 0.2; animation-delay: -3s; }
+    @keyframes orbFloat {
+      0% { transform: translate(0, 0) scale(1); }
+      100% { transform: translate(60px, 40px) scale(1.15); }
+    }
+
+    /* Glass */
+    .glass {
+      background: rgba(15, 15, 20, 0.65);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6), inset 0 0 20px rgba(255,255,255,0.02);
+    }
+
+    audio { display: none; }
+    .playlist-scroll::-webkit-scrollbar { width: 4px; }
+    .playlist-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+    .reveal { opacity: 0; transform: translateY(30px); }
+
+    .delete-btn { opacity: 0; transition: opacity .2s, color .2s; color: rgba(255,255,255,0.3); }
+    .track-item:hover .delete-btn { opacity: 1; }
+    .delete-btn:hover { color: #ff453a; }
+
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: #0071e3;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Визуализатор */
+    #visualizer {
+      width: 100%;
+      height: 50px;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+
+    /* Неактивный трек (локальный, потерян после перезагрузки) */
+    .track-item.inactive { opacity: 0.45; }
+    .track-item.inactive .track-name { text-decoration: line-through; }
+    .reactivate-btn {
+      font-size: 9px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(0,113,227,0.2);
+      color: #42a5f5;
+      border: 1px solid rgba(0,113,227,0.4);
+      transition: background .2s;
+    }
+    .reactivate-btn:hover { background: rgba(0,113,227,0.4); }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col items-center justify-center p-4 md:p-8">
+
+  <!-- Курсор -->
+  <div id="cursor-glow"></div>
+  <div id="cursor-dot"></div>
+  <div id="cursor-ring"></div>
+
+  <!-- Фон -->
+  <div class="bg-canvas">
+    <div class="bg-grid-lines"></div>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+    <div class="bg-orb orb-c"></div>
+  </div>
+
+  <header class="reveal text-center mt-6 mb-4 z-10">
+    <h1 class="text-4xl md:text-6xl font-bold tracking-tight">Midnight<span class="text-blue-500">Player</span></h1>
+    <p class="text-white/40 text-xs tracking-[0.3em] uppercase mt-2">Visualizer · Persistent · Online</p>
+  </header>
+
+  <main class="w-full max-w-5xl grid grid-cols-1 md:grid-cols-3 gap-5 z-10 reveal">
+
+    <!-- Плеер -->
+    <div class="glass rounded-3xl p-6 flex flex-col items-center justify-between h-[520px]">
+      <div class="w-40 h-40 rounded-full border border-white/10 flex items-center justify-center relative overflow-hidden mb-3 shadow-[0_0_60px_rgba(0,113,227,0.25)]">
+        <div id="vinyl" class="w-full h-full rounded-full bg-gradient-to-br from-[#1a1a1a] to-[#000] flex items-center justify-center border-[8px] border-[#111]">
+          <div class="w-10 h-10 rounded-full bg-blue-500/20 border border-blue-500/50"></div>
+        </div>
+        <div class="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/20 pointer-events-none"></div>
+      </div>
+
+      <!-- Визуализатор -->
+      <canvas id="visualizer" class="mb-3"></canvas>
+
+      <div class="text-center w-full mb-2">
+        <h2 id="track-title" class="text-sm font-semibold truncate px-2">Нет трека</h2>
+        <p id="track-artist" class="text-[10px] text-white/40 mt-0.5">Загрузите файл или найдите онлайн</p>
+      </div>
+
+      <div class="w-full mb-2">
+        <input type="range" id="progress" value="0" max="100" class="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500">
+        <div class="flex justify-between text-[10px] text-white/40 mt-1">
+          <span id="curr-time">0:00</span>
+          <span id="total-time">0:00</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-6">
+        <button id="prev-btn" class="text-white/50 hover:text-white transition-colors">
+          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
+        <button id="play-btn" class="w-14 h-14 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-[0_0_25px_rgba(255,255,255,0.35)]">
+          <svg id="play-icon" class="w-6 h-6 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+          <svg id="pause-icon" class="w-6 h-6 hidden" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+        </button>
+        <button id="next-btn" class="text-white/50 hover:text-white transition-colors">
+          <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Плейлист + Поиск -->
+    <div class="glass rounded-3xl p-5 col-span-1 md:col-span-2 h-[520px] flex flex-col relative overflow-hidden">
+
+      <div class="mb-3">
+        <div class="flex gap-2">
+          <input id="search-input" type="text" placeholder="Поиск в интернете (Audius)..."
+                 class="flex-1 bg-white/10 border border-white/15 rounded-full px-4 py-2 text-xs outline-none focus:border-blue-500 transition-colors" />
+          <button id="search-btn" class="bg-blue-600 hover:bg-blue-500 active:scale-95 px-4 py-2 rounded-full text-xs font-medium transition-all">Найти</button>
+        </div>
+        <div id="search-results" class="hidden mt-2 max-h-[100px] overflow-y-auto playlist-scroll space-y-1"></div>
+      </div>
+
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-white/50">Плейлист <span id="track-count" class="text-white/30 normal-case tracking-normal">(0)</span></h3>
+        <div class="flex gap-2">
+          <button id="clear-btn" class="bg-white/5 hover:bg-red-500/20 border border-white/10 px-3 py-1.5 rounded-full text-[10px] font-medium transition-colors text-white/60 hover:text-red-400">
+            Очистить
+          </button>
+          <label for="file-upload" class="cursor-pointer bg-white/10 hover:bg-white/20 border border-white/10 px-3 py-1.5 rounded-full text-[10px] font-medium transition-colors flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+            Добавить
+          </label>
+          <input id="file-upload" type="file" accept="audio/*" multiple class="hidden">
+        </div>
+      </div>
+
+      <div id="playlist" class="flex-1 overflow-y-auto playlist-scroll pr-1 space-y-1">
+        <div class="text-center text-white/25 text-xs mt-10" id="empty-msg">
+          Пока пусто. Загрузи файлы или найди онлайн.
+        </div>
+      </div>
+
+      <div id="drop-zone" class="absolute inset-0 bg-blue-500/20 backdrop-blur-sm border-2 border-blue-500 border-dashed rounded-3xl hidden items-center justify-center flex-col z-20 pointer-events-none">
+        <svg class="w-10 h-10 text-blue-400 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+        <p class="text-blue-400 font-semibold text-sm">Отпусти, чтобы загрузить</p>
+      </div>
+    </div>
+  </main>
+
+  <audio id="audio-player" crossorigin="anonymous"></audio>
+
+  <script>
+    /* ==================== 1. КУРСОР ==================== */
+    const cursorDot = document.getElementById('cursor-dot');
+    const cursorRing = document.getElementById('cursor-ring');
+    const cursorGlow = document.getElementById('cursor-glow');
+
+    const xDot = gsap.quickTo(cursorDot, 'x', { duration: 0.1, ease: 'power3' });
+    const yDot = gsap.quickTo(cursorDot, 'y', { duration: 0.1, ease: 'power3' });
+    const xRing = gsap.quickTo(cursorRing, 'x', { duration: 0.45, ease: 'power3' });
+    const yRing = gsap.quickTo(cursorRing, 'y', { duration: 0.45, ease: 'power3' });
+    const xGlow = gsap.quickTo(cursorGlow, 'x', { duration: 0.8, ease: 'power3' });
+    const yGlow = gsap.quickTo(cursorGlow, 'y', { duration: 0.8, ease: 'power3' });
+
+    window.addEventListener('mousemove', (e) => {
+      xDot(e.clientX); yDot(e.clientY);
+      xRing(e.clientX); yRing(e.clientY);
+      xGlow(e.clientX); yGlow(e.clientY);
+    });
+
+    function bindCursorHover() {
+      document.querySelectorAll('button, label, input, a, .track-item').forEach(el => {
+        if (el.dataset.cursorBound) return;
+        el.dataset.cursorBound = '1';
+        el.addEventListener('mouseenter', () => cursorRing.classList.add('hovering'));
+        el.addEventListener('mouseleave', () => cursorRing.classList.remove('hovering'));
+      });
+    }
+    bindCursorHover();
+
+    document.addEventListener('mouseleave', () => gsap.to([cursorDot, cursorRing, cursorGlow], { opacity: 0, duration: 0.2 }));
+    document.addEventListener('mouseenter', () => gsap.to([cursorDot, cursorRing, cursorGlow], { opacity: 1, duration: 0.2 }));
+
+    /* ==================== 2. ПОЯВЛЕНИЕ ==================== */
+    gsap.to('.reveal', { opacity: 1, y: 0, duration: 1.1, stagger: 0.15, ease: 'power4.out', delay: 0.1 });
+
+    /* ==================== 3. ПАРАЛЛАКС ФОНА ==================== */
+    window.addEventListener('mousemove', (e) => {
+      const x = (e.clientX / window.innerWidth - 0.5) * 30;
+      const y = (e.clientY / window.innerHeight - 0.5) * 30;
+      gsap.to('.bg-grid-lines', { x: x * 0.3, y: y * 0.3, duration: 2, ease: 'power2.out' });
+      gsap.to('.orb-a', { x: x * 0.5, y: y * 0.5, duration: 2.5, ease: 'power2.out' });
+      gsap.to('.orb-b', { x: -x * 0.4, y: -y * 0.4, duration: 2.5, ease: 'power2.out' });
+    });
+
+    /* ==================== 4. ПЕРЕМЕННЫЕ ==================== */
+    const audioPlayer = document.getElementById('audio-player');
+    const playBtn = document.getElementById('play-btn');
+    const playIcon = document.getElementById('play-icon');
+    const pauseIcon = document.getElementById('pause-icon');
+    const trackTitle = document.getElementById('track-title');
+    const trackArtist = document.getElementById('track-artist');
+    const progress = document.getElementById('progress');
+    const currTime = document.getElementById('curr-time');
+    const totalTime = document.getElementById('total-time');
+    const playlistEl = document.getElementById('playlist');
+    const emptyMsg = document.getElementById('empty-msg');
+    const fileUpload = document.getElementById('file-upload');
+    const dropZone = document.getElementById('drop-zone');
+    const vinyl = document.getElementById('vinyl');
+    const trackCount = document.getElementById('track-count');
+    const clearBtn = document.getElementById('clear-btn');
+
+    const STORAGE_KEY = 'midnight_player_tracks_v1';
+
+    let tracks = [];
+    let currentTrackIndex = -1;
+    let isPlaying = false;
+    let vinylAnim = null;
+    let trackIdCounter = 0;
+
+    /* ==================== 5. LOCALSTORAGE ==================== */
+    function savePlaylist() {
+      // Сохраняем только сериализуемое. Для локальных файлов url = null.
+      const serializable = tracks.map(t => ({
+        id: t.id,
+        name: t.name,
+        artist: t.artist,
+        url: t.isOnline ? t.url : null,
+        isOnline: t.isOnline,
+        trackId: t.trackId || null // для Audius
+      }));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(serializable));
+      } catch (e) {
+        console.warn('Не удалось сохранить плейлист', e);
+      }
+    }
+
+    function loadPlaylistFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        tracks = saved.map(t => ({
+          ...t,
+          // Если локальный — url недоступен, помечаем неактивным
+          isInactive: !t.isOnline && !t.url
+        }));
+      } catch (e) {
+        console.warn('Не удалось загрузить плейлист', e);
+      }
+    }
+
+    /* ==================== 6. ВИЗУАЛИЗАТОР ==================== */
+    const visualizerCanvas = document.getElementById('visualizer');
+    const vizCtx = visualizerCanvas.getContext('2d');
+    let audioContext, analyser, sourceNode, dataArray;
+    let vizAnimationId = null;
+
+    // Инициализация Web Audio (только один раз, после первого play)
+    function initAudioAnalyzer() {
+      if (audioContext) return;
+      try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 128;
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        // Подключаем аудио-элемент к анализатору
+        sourceNode = audioContext.createMediaElementSource(audioPlayer);
+        sourceNode.connect(analyser);
+        analyser.connect(audioContext.destination);
+      } catch (e) {
+        console.warn('Web Audio недоступен:', e);
+      }
+    }
+
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = visualizerCanvas.getBoundingClientRect();
+      visualizerCanvas.width = rect.width * dpr;
+      visualizerCanvas.height = rect.height * dpr;
+      vizCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    function drawVisualizer() {
+      if (!analyser) return;
+      vizAnimationId = requestAnimationFrame(drawVisualizer);
+
+      analyser.getByteFrequencyData(dataArray);
+
+      const rect = visualizerCanvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      vizCtx.clearRect(0, 0, w, h);
+
+      // Ограничим количество столбцов (первые 40 частот — самые «музыкальные»)
+      const bars = Math.min(40, dataArray.length);
+      const barWidth = w / bars;
+      const gap = 2;
+
+      for (let i = 0; i < bars; i++) {
+        const value = dataArray[i] / 255; // 0..1
+        const barHeight = Math.max(2, value * h);
+
+        // Градиент от синего к бирюзовому, в зависимости от высоты
+        const grad = vizCtx.createLinearGradient(0, h, 0, h - barHeight);
+        grad.addColorStop(0, `rgba(0,113,227,${0.4 + value * 0.6})`);
+        grad.addColorStop(1, `rgba(66,165,245,${0.6 + value * 0.4})`);
+
+        vizCtx.fillStyle = grad;
+        const x = i * barWidth + gap / 2;
+        const barW = barWidth - gap;
+        const y = h - barHeight;
+        const radius = Math.min(barW / 2, 3);
+
+        // Скруглённые столбики
+        vizCtx.beginPath();
+        vizCtx.moveTo(x + radius, y);
+        vizCtx.lineTo(x + barW - radius, y);
+        vizCtx.quadraticCurveTo(x + barW, y, x + barW, y + radius);
+        vizCtx.lineTo(x + barW, h);
+        vizCtx.lineTo(x, h);
+        vizCtx.lineTo(x, y + radius);
+        vizCtx.quadraticCurveTo(x, y, x + radius, y);
+        vizCtx.fill();
+      }
+    }
+
+    function stopVisualizer() {
+      if (vizAnimationId) {
+        cancelAnimationFrame(vizAnimationId);
+        vizAnimationId = null;
+      }
+      // Очищаем
+      const rect = visualizerCanvas.getBoundingClientRect();
+      vizCtx.clearRect(0, 0, rect.width, rect.height);
+    }
+
+    /* ==================== 7. РЕНДЕР ПЛЕЙЛИСТА ==================== */
+    function renderPlaylist() {
+      Array.from(playlistEl.children).forEach(child => {
+        if (child.id !== 'empty-msg') child.remove();
+      });
+
+      trackCount.textContent = `(${tracks.length})`;
+
+      if (tracks.length === 0) {
+        emptyMsg.style.display = 'block';
+        return;
+      }
+      emptyMsg.style.display = 'none';
+
+      tracks.forEach((track, index) => {
+        const isInactive = track.isInactive || (!track.isOnline && !track.url);
+        const item = document.createElement('div');
+        item.className = `track-item group flex items-center justify-between p-2 rounded-xl hover:bg-white/10 transition-colors cursor-pointer ${index === currentTrackIndex ? 'bg-white/10 border border-white/10' : ''} ${isInactive ? 'inactive' : ''}`;
+
+        const statusIcon = index === currentTrackIndex && isPlaying ? '❚❚' : '▶';
+
+        item.innerHTML = `
+          <div class="flex items-center gap-2 min-w-0 flex-1">
+            <div class="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center text-[10px] text-white/50 group-hover:text-white transition-colors shrink-0">
+              ${statusIcon}
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="track-name text-xs font-medium text-white/90 truncate">${track.name}</p>
+              <p class="text-[9px] text-white/40 truncate">${track.artist} ${track.isOnline ? '· 🌐' : '· 📁'} ${isInactive ? '· потерян' : ''}</p>
+            </div>
+            ${isInactive ? '<button class="reactivate-btn mr-1">Восстановить</button>' : ''}
+          </div>
+          <button class="delete-btn shrink-0 ml-2 p-1 rounded-full hover:bg-red-500/20 transition-all" data-id="${track.id}" title="Удалить">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+        `;
+
+        // Клик по треку
+        item.addEventListener('click', (e) => {
+          if (e.target.closest('.delete-btn') || e.target.closest('.reactivate-btn')) return;
+          if (isInactive) return; // нельзя включить потерянный файл
+          if (currentTrackIndex === index) {
+            togglePlay();
+          } else {
+            loadTrack(index);
+            playTrack();
+          }
+        });
+
+        // Удаление
+        item.querySelector('.delete-btn').addEventListener('click', (e) => {
+          e.stopPropagation();
+          removeTrack(track.id);
+        });
+
+        // Восстановление потерянного локального файла
+        const reactivateBtn = item.querySelector('.reactivate-btn');
+        if (reactivateBtn) {
+          reactivateBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            reactivateLocalTrack(track.id);
+          });
+        }
+
+        playlistEl.appendChild(item);
+      });
+
+      bindCursorHover();
+    }
+
+    /* ==================== 8. ВОССТАНОВЛЕНИЕ ЛОКАЛЬНОГО ТРЕКА ==================== */
+    function reactivateLocalTrack(id) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'audio/*';
+      input.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        const idx = tracks.findIndex(t => t.id === id);
+        if (idx === -1) return;
+        tracks[idx].url = url;
+        tracks[idx].isInactive = false;
+        tracks[idx].name = file.name.replace(/\.[^/.]+$/, '');
+        savePlaylist();
+        renderPlaylist();
+      });
+      input.click();
+    }
+
+    /* ==================== 9. УДАЛЕНИЕ И ОЧИСТКА ==================== */
+    function removeTrack(id) {
+      const index = tracks.findIndex(t => t.id === id);
+      if (index === -1) return;
+
+      const wasCurrent = index === currentTrackIndex;
+
+      if (wasCurrent) {
+        pauseTrack();
+        audioPlayer.src = '';
+        currentTrackIndex = -1;
+        trackTitle.textContent = 'Нет трека';
+        trackArtist.textContent = 'Загрузите файл или найдите онлайн';
+        progress.value = 0;
+        currTime.textContent = '0:00';
+        totalTime.textContent = '0:00';
+      }
+
+      if (!tracks[index].isOnline && tracks[index].url && tracks[index].url.startsWith('blob:')) {
+        URL.revokeObjectURL(tracks[index].url);
+      }
+
+      tracks.splice(index, 1);
+      if (!wasCurrent && index < currentTrackIndex) currentTrackIndex--;
+
+      savePlaylist();
+      renderPlaylist();
+    }
+
+    clearBtn.addEventListener('click', () => {
+      if (tracks.length === 0) return;
+      if (!confirm('Очистить весь плейлист?')) return;
+      pauseTrack();
+      audioPlayer.src = '';
+      currentTrackIndex = -1;
+      trackTitle.textContent = 'Нет трека';
+      trackArtist.textContent = 'Загрузите файл или найдите онлайн';
+      progress.value = 0;
+      currTime.textContent = '0:00';
+      totalTime.textContent = '0:00';
+
+      tracks.forEach(t => {
+        if (!t.isOnline && t.url && t.url.startsWith('blob:')) URL.revokeObjectURL(t.url);
+      });
+      tracks = [];
+      savePlaylist();
+      renderPlaylist();
+    });
+
+    /* ==================== 10. ЗАГРУЗКА ФАЙЛОВ ==================== */
+    function handleFiles(files) {
+      let added = 0;
+      Array.from(files).forEach(file => {
+        if (file.type.startsWith('audio/')) {
+          const url = URL.createObjectURL(file);
+          tracks.push({
+            id: 'local_' + (trackIdCounter++) + '_' + Date.now(),
+            name: file.name.replace(/\.[^/.]+$/, ''),
+            artist: 'Локальный файл',
+            url: url,
+            isOnline: false,
+            isInactive: false
+          });
+          added++;
+        }
+      });
+      if (added > 0) {
+        savePlaylist();
+        renderPlaylist();
+      }
+    }
+
+    fileUpload.addEventListener('change', (e) => handleFiles(e.target.files));
+
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('hidden');
+      dropZone.classList.add('flex');
+    });
+    document.addEventListener('dragleave', (e) => {
+      if (e.relatedTarget === null) {
+        dropZone.classList.add('hidden');
+        dropZone.classList.remove('flex');
+      }
+    });
+    document.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('hidden');
+      dropZone.classList.remove('flex');
+      if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+    });
+
+    /* ==================== 11. УПРАВЛЕНИЕ ВОСПРОИЗВЕДЕНИЕМ ==================== */
+    function loadTrack(index) {
+      const track = tracks[index];
+      if (!track || track.isInactive) return;
+      currentTrackIndex = index;
+      audioPlayer.src = track.url;
+      trackTitle.textContent = track.name;
+      trackArtist.textContent = track.artist;
+      progress.value = 0;
+      renderPlaylist();
+    }
+
+    function playTrack() {
+      if (currentTrackIndex === -1) return;
+
+      // Инициализация анализатора при первом воспроизведении (требует user gesture)
+      initAudioAnalyzer();
+      if (audioContext && audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+
+      audioPlayer.play().catch(() => {});
+      isPlaying = true;
+      playIcon.classList.add('hidden');
+      pauseIcon.classList.remove('hidden');
+      renderPlaylist();
+
+      if (vinylAnim) vinylAnim.kill();
+      vinylAnim = gsap.to(vinyl, { rotation: 360, duration: 4, repeat: -1, ease: 'none' });
+
+      // Запускаем визуализатор
+      if (vizAnimationId) cancelAnimationFrame(vizAnimationId);
+      drawVisualizer();
+    }
+
+    function pauseTrack() {
+      audioPlayer.pause();
+      isPlaying = false;
+      playIcon.classList.remove('hidden');
+      pauseIcon.classList.add('hidden');
+      renderPlaylist();
+      if (vinylAnim) vinylAnim.kill();
+      stopVisualizer();
+    }
+
+    function togglePlay() {
+      if (currentTrackIndex === -1 && tracks.length > 0) {
+        // Найдём первый активный
+        const firstPlayable = tracks.findIndex(t => !t.isInactive);
+        if (firstPlayable !== -1) {
+          loadTrack(firstPlayable);
+          playTrack();
+        }
+      } else if (isPlaying) {
+        pauseTrack();
+      } else {
+        playTrack();
+      }
+    }
+
+    playBtn.addEventListener('click', togglePlay);
+
+    document.getElementById('next-btn').addEventListener('click', () => {
+      if (tracks.length === 0) return;
+      // Ищем следующий активный
+      for (let i = 1; i <= tracks.length; i++) {
+        const idx = (currentTrackIndex + i) % tracks.length;
+        if (!tracks[idx].isInactive) {
+          loadTrack(idx);
+          playTrack();
+          return;
+        }
+      }
+    });
+
+    document.getElementById('prev-btn').addEventListener('click', () => {
+      if (tracks.length === 0) return;
+      for (let i = 1; i <= tracks.length; i++) {
+        const idx = (currentTrack
